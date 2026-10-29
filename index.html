@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    
+    <!-- Import the Supabase JS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+    <!-- Visual HTML content -->
+    <p id="status">Connecting...</p>
+
+    <script>
+        const SUPABASE_URL = 'https://mzgvdxpvdmrtwmiujbwu.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_8K-JOYkEX0odP2CwDjXqNw_i9PUJy8D';
+
+        // Renamed variable to supabaseClient to prevent variable conflict
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // Display connection status on screen
+        if (supabaseClient) {
+            document.getElementById('status').innerText = 'Successfully connected to Supabase!';
+        }
+    </script>
+</body>
+</html>
