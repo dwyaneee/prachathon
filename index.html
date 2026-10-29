@@ -1,29 +1,145 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
-    
-    <!-- Import the Supabase JS Library -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baguio Road Watch</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --pine:#1d4a3a; --fog:#f1f4f2; --ink:#16231d; --line:#cfd8d3; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: grid; grid-template-columns: 330px 1fr; font-family: system-ui, sans-serif; color: var(--ink); }
+  aside { background: var(--fog); padding: 24px 20px; overflow-y: auto; border-right: 1px solid var(--line); }
+  h1 { font-size: 1.5rem; margin: 0 0 6px; color: var(--pine); }
+  p.lead { margin: 0 0 20px; line-height: 1.5; max-width: 34ch; }
+  label { display: block; font-weight: 600; margin: 14px 0 6px; }
+  select, textarea { width: 100%; padding: 10px; font: inherit; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  textarea { resize: vertical; min-height: 80px; }
+  button { margin-top: 16px; width: 100%; padding: 12px; font: inherit; font-weight: 600; color: #fff; background: var(--pine); border: 0; border-radius: 6px; cursor: pointer; }
+  button:hover { background: #163a2d; }
+  :focus-visible { outline: 3px solid #d99a1b; outline-offset: 2px; }
+  #msg { min-height: 1.4em; margin-top: 12px; font-size: .95rem; }
+  #banner { background: #fff3d6; border: 1px solid #e6c26a; padding: 8px 10px; border-radius: 6px; font-size: .9rem; margin-bottom: 16px; }
+  #count { margin-top: 18px; color: #4b5d54; font-size: .9rem; }
+  #status { margin-top: 10px; font-weight: 600; color: #1d4a3a; font-size: .9rem; }
+  #map { height: 100%; }
+  @media (max-width: 700px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 55vh 1fr; }
+    #map { order: -1; }
+    aside { border-right: 0; border-top: 1px solid var(--line); }
+  }
+</style>
 </head>
 <body>
+<aside>
+  <h1>Baguio Road Watch</h1>
+  <p class="lead">Click the map where the problem is, then add a report. Everyone sees it right away.</p>
+  <div id="banner" hidden>Demo mode: reports disappear on refresh. Add your Supabase keys to save them.</div>
+  <form id="form">
+    <label for="type">What happened?</label>
+    <select id="type"></select>
+    <label for="note">Details (optional)</label>
+    <textarea id="note" maxlength="200" placeholder="Example: Rocks on the right lane near the curve"></textarea>
+    <button type="submit">Add report</button>
+  </form>
+  <div id="msg" role="status"></div>
+  <div id="count"></div>
+  <p id="status">Connecting...</p>
+</aside>
+<div id="map"></div>
 
-    <!-- Visual HTML content -->
-    <p id="status">Connecting...</p>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+// Supabase connection values injected from the second snippet
+const SUPABASE_URL = 'https://mzgvdxpvdmrtwmiujbwu.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_8K-JOYkEX0odP2CwDjXqNw_i9PUJy8D';
 
-    <script>
-        const SUPABASE_URL = 'https://mzgvdxpvdmrtwmiujbwu.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_8K-JOYkEX0odP2CwDjXqNw_i9PUJy8D';
+const TYPES = {
+  landslide: ["Landslide", "#8a4b2a"],
+  flood:     ["Flooding", "#2f6fa8"],
+  accident:  ["Accident", "#c0392b"],
+  pothole:   ["Pothole", "#d99a1b"],
+  trash:     ["Uncollected trash", "#5f7a6b"]
+};
+const $ = id => document.getElementById(id);
+const demo = !SUPABASE_URL || !SUPABASE_KEY;
 
-        // Renamed variable to supabaseClient to prevent variable conflict
-        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Create Supabase client and map both references (db & supabaseClient)
+const supabaseClient = demo ? null : supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const db = supabaseClient;
 
-        // Display connection status on screen
-        if (supabaseClient) {
-            document.getElementById('status').innerText = 'Successfully connected to Supabase!';
-        }
-    </script>
+// Display status update on load
+if (supabaseClient) {
+  const statusEl = $('status');
+  if (statusEl) statusEl.innerText = 'Successfully connected to Supabase!';
+}
+
+// Sample data so the map is never empty during your demo (approximate locations)
+let local = [
+  { type: "pothole",   note: "Deep pothole near the market entrance", lat: 16.4125, lng: 120.5935 },
+  { type: "flood",     note: "Water covers the road when it rains hard", lat: 16.4060, lng: 120.6010 },
+  { type: "landslide", note: "Loose soil and rocks on the slope", lat: 16.3900, lng: 120.5800 }
+];
+
+$("banner").hidden = !demo;
+for (const k in TYPES) $("type").add(new Option(TYPES[k][0], k));
+
+const map = L.map("map").setView([16.4023, 120.596], 14);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "© OpenStreetMap contributors"
+}).addTo(map);
+
+const layer = L.layerGroup().addTo(map);
+let pick = null;
+
+map.on("click", e => {
+  if (pick) pick.setLatLng(e.latlng); else pick = L.marker(e.latlng).addTo(map);
+  $("msg").textContent = "Pin placed. Choose what happened, then add the report.";
+});
+
+function draw(r) {
+  const [label, color] = TYPES[r.type] || [r.type, "#555"];
+  const box = document.createElement("div");
+  const title = document.createElement("b");
+  const text = document.createElement("p");
+  title.textContent = label;
+  text.textContent = r.note || "No details";   // textContent keeps user input safe
+  box.append(title, text);
+  L.circleMarker([r.lat, r.lng], { radius: 9, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95 })
+    .bindPopup(box).addTo(layer);
+}
+
+async function load() {
+  let rows = local;
+  if (!demo) {
+    const { data, error } = await db.from("reports").select("*").order("created_at", { ascending: false }).limit(200);
+    if (error) { $("msg").textContent = "Could not load reports: " + error.message; return; }
+    rows = data;
+  }
+  layer.clearLayers();
+  rows.forEach(draw);
+  $("count").textContent = rows.length + " reports on the map";
+}
+
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!pick) { $("msg").textContent = "Click the map to place a pin first."; return; }
+  const { lat, lng } = pick.getLatLng();
+  const row = { type: $("type").value, note: $("note").value.trim().slice(0, 200), lat, lng };
+  if (demo) {
+    local.push(row);
+  } else {
+    const { error } = await db.from("reports").insert(row);
+    if (error) { $("msg").textContent = "Could not save the report: " + error.message; return; }
+  }
+  map.removeLayer(pick); pick = null; $("note").value = "";
+  $("msg").textContent = "Report added.";
+  load();
+});
+
+load();
+</script>
 </body>
 </html>
